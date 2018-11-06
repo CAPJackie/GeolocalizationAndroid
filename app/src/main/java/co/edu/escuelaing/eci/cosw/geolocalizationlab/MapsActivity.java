@@ -1,27 +1,64 @@
 package co.edu.escuelaing.eci.cosw.geolocalizationlab;
 
-import android.support.v4.app.FragmentActivity;
+import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.location.Location;
 import android.os.Bundle;
+import android.os.Handler;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.FragmentActivity;
+import android.support.v4.content.ContextCompat;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.TextView;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.firebase.database.Transaction;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+import java.text.BreakIterator;
 
-    private GoogleMap mMap;
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleApiClient.ConnectionCallbacks, GoogleApiClient.OnConnectionFailedListener {
+
+    private final LocationRequest locationRequest = new LocationRequest();
+
+    private GoogleMap googleMap;
+
+    private static final int ACCESS_LOCATION_PERMISSION_CODE = 10;
+
+    private GoogleApiClient googleApiClient;
+    private TextView address;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+        address = (EditText)findViewById(R.id.address);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+
+        googleApiClient = new GoogleApiClient.Builder(this).addConnectionCallbacks(this).
+                addOnConnectionFailedListener(this).addApi(LocationServices.API).build();
+        locationRequest.setInterval(10000);
+        locationRequest.setFastestInterval(5000);
+        locationRequest.setPriority(LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY);
+        googleApiClient.connect();
     }
 
 
@@ -36,11 +73,149 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      */
     @Override
     public void onMapReady(GoogleMap googleMap) {
-        mMap = googleMap;
+
+        this.googleMap = googleMap;
+        /*mMap = googleMap;
 
         // Add a marker in Sydney and move the camera
         LatLng sydney = new LatLng(-34, 151);
         mMap.addMarker(new MarkerOptions().position(sydney).title("Marker in Sydney"));
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney));*/
+    }
+
+    @SuppressWarnings("MissingPermission")
+    public void showMyLocation() {
+        if (googleMap != null) {
+            String[] permissions = {android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION};
+            if (hasPermissions(this, permissions)) {
+                googleMap.setMyLocationEnabled(true);
+
+                Location lastLocation = LocationServices.FusedLocationApi.getLastLocation(this.googleApiClient);
+                if (lastLocation != null) {
+                    addMarkerAndZoom(lastLocation, "My Location", 15);
+                }
+            } else {
+                ActivityCompat.requestPermissions(this, permissions, ACCESS_LOCATION_PERMISSION_CODE);
+            }
+        }
+    }
+
+    public static boolean hasPermissions(Context context, String[] permissions) {
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_DENIED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    public void addMarkerAndZoom(Location location, String title, int zoom) {
+        LatLng myLocation = new LatLng(location.getLatitude(), location.getLongitude());
+        googleMap.addMarker(new MarkerOptions().position(myLocation).title(title));
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(myLocation, zoom));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        for (int grantResult : grantResults) {
+            if (grantResult == -1) {
+                return;
+            }
+        }
+        switch (requestCode) {
+            case ACCESS_LOCATION_PERMISSION_CODE:
+                showMyLocation();
+                break;
+            default:
+                super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        }
+    }
+
+
+    @Override
+    public void onConnected(@Nullable Bundle bundle) {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        LocationServices.FusedLocationApi.requestLocationUpdates(googleApiClient, locationRequest,
+                new LocationListener() {
+                    @Override
+                    public void onLocationChanged(Location location) {
+                        showMyLocation();
+                        stopLocationUpdates();
+                    }
+                });
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+        LocationServices.FusedLocationApi.removeLocationUpdates( googleApiClient, (LocationListener) null);
+    }
+
+    public void stopLocationUpdates()
+    {
+        LocationServices.FusedLocationApi.removeLocationUpdates( googleApiClient, new LocationListener()
+        {
+            @Override
+            public void onLocationChanged( Location location )
+            {
+
+            }
+        } );
+    }
+
+
+    public void onFindAddressClicked( View view )
+    {
+        startFetchAddressIntentService();
+    }
+
+    @SuppressLint("MissingPermission")
+    public void startFetchAddressIntentService()
+    {
+        Location lastLocation = LocationServices.FusedLocationApi.getLastLocation( googleApiClient );
+        if ( lastLocation != null )
+        {
+            AddressResultReceiver addressResultReceiver = new AddressResultReceiver( new Handler() );
+            addressResultReceiver.setAddressResultListener( new AddressResultListener()
+            {
+                @Override
+                public void onAddressFound( final String address )
+                {
+                    runOnUiThread( new Runnable()
+                    {
+                        @Override
+                        public void run()
+                        {
+                            MapsActivity.this.address.setText( address );
+                            MapsActivity.this.address.setVisibility( View.VISIBLE );
+                        }
+                    } );
+
+
+                }
+            } );
+            Intent intent = new Intent( this, FetchAddressIntentService.class );
+            intent.putExtra( FetchAddressIntentService.RECEIVER, addressResultReceiver );
+            intent.putExtra( FetchAddressIntentService.LOCATION_DATA_EXTRA, lastLocation );
+            startService( intent );
+        }
+    }
+
+
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
     }
 }
